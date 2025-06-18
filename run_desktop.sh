@@ -28,5 +28,5 @@ echo "- Press 's' to save screenshot"
 echo "- Show your LEFT hand for detection"
 echo ""
 
-# Run the desktop application
-python webcam_desktop.py --snapshot models/VRI.pkl --gpu cpu --cam 8 --arrow-length 200 
+# Run the desktop application with python3
+python3 webcam_desktop.py --snapshot models/VRI.pkl --gpu cpu --cam 8 --arrow-length 200 

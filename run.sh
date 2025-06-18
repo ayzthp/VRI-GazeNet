@@ -27,5 +27,5 @@ echo "- Press 's' to save screenshot"
 echo "- Show your LEFT hand for detection"
 echo ""
 
-# Run the main application
-python webcam_face_detection.py --snapshot models/VRI.pkl --gpu cpu --arrow-length 200 
+# Run the main application with python3
+python3 webcam_face_detection.py --snapshot models/VRI.pkl --gpu cpu --arrow-length 200 

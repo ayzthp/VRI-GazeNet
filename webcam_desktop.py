@@ -67,14 +67,35 @@ def calculate_gaze_strength(gaze_end, hand_center, nose_pos):
     # Calculate distance to hand
     hand_distance = np.linalg.norm(hand_vector)
     
-    # Gaze strength: higher when angle is smaller and hand is at reasonable distance
-    # Strength decreases exponentially with angle
-    angle_strength = max(0, 100 * np.exp(-angle / 15))  # Strong when angle < 15°
+    # Normalized gaze strength calculation for desktop
+    # More stable and less fluctuating
     
-    # Distance factor (optimal at medium distances)
-    distance_factor = min(1.0, max(0.5, 200 / max(hand_distance, 50)))
+    # Angle strength: smoother curve for desktop
+    if angle < 10:
+        angle_strength = 100  # Perfect alignment
+    elif angle < 30:
+        angle_strength = 90 - (angle - 10) * 2  # Gradual decrease
+    elif angle < 60:
+        angle_strength = 30 - (angle - 30) * 0.5  # Slower decrease
+    else:
+        angle_strength = 0  # Too far off
     
+    # Distance factor: more forgiving for desktop
+    if hand_distance < 100:
+        distance_factor = 0.8  # Too close
+    elif hand_distance < 300:
+        distance_factor = 1.0  # Optimal distance
+    elif hand_distance < 500:
+        distance_factor = 0.9  # Still good
+    else:
+        distance_factor = 0.7  # Too far
+    
+    # Calculate total strength with normalization
     total_strength = angle_strength * distance_factor
+    
+    # Apply smoothing and normalization
+    total_strength = max(0, min(100, total_strength))  # Clamp to 0-100
+    
     return total_strength, angle
 
 
@@ -196,6 +217,10 @@ if __name__ == '__main__':
     fps = 0  # Initialize fps variable
 
     NOSE=1; LP=468; RP=473
+    
+    # Gaze strength smoothing for desktop
+    gaze_strength_history = []
+    smoothing_window = 5  # Average over 5 frames
 
     while True:
         ret, frame = cap.read()
@@ -276,13 +301,28 @@ if __name__ == '__main__':
                     # Check if gaze is strongly focused on hand
                     is_focused, gaze_strength, gaze_angle = is_gaze_focused_on_hand(arrow_end, hand_center, nose_pt, min_strength=60)
                     
-                    # Always show gaze strength info
-                    cv2.putText(frame, f"Gaze Strength: {gaze_strength:.1f}%", (10, 120), 
+                    # Apply smoothing to gaze strength
+                    gaze_strength_history.append(gaze_strength)
+                    if len(gaze_strength_history) > smoothing_window:
+                        gaze_strength_history.pop(0)
+                    
+                    # Calculate smoothed gaze strength
+                    smoothed_strength = sum(gaze_strength_history) / len(gaze_strength_history)
+                    
+                    # Always show gaze strength info (smoothed)
+                    cv2.putText(frame, f"Gaze Strength: {smoothed_strength:.1f}%", (10, 120), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                     cv2.putText(frame, f"Angle: {gaze_angle:.1f}°", (10, 140), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                     
-                    if is_focused:
+                    # Show stability indicator
+                    if len(gaze_strength_history) >= smoothing_window:
+                        stability = "STABLE" if max(gaze_strength_history) - min(gaze_strength_history) < 10 else "UNSTABLE"
+                        stability_color = (0, 255, 0) if stability == "STABLE" else (0, 165, 255)
+                        cv2.putText(frame, f"Status: {stability}", (10, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.5, stability_color, 2)
+                    
+                    # Use smoothed strength for focus detection
+                    if smoothed_strength >= 60:
                         # Draw blue lines from pupils to hand only when truly focused
                         draw_pupil_to_hand_lines(left_pt, right_pt, hand_center, frame, color=(255, 0, 0), thickness=2)
                         
@@ -297,8 +337,8 @@ if __name__ == '__main__':
                         cv2.putText(frame, "FOCUSED ON HAND", (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
                     else:
                         # Show that hand is detected but not focused
-                        focus_status = "WEAK FOCUS" if gaze_strength > 30 else "NOT FOCUSED"
-                        color = (0, 165, 255) if gaze_strength > 30 else (128, 128, 128)
+                        focus_status = "WEAK FOCUS" if smoothed_strength > 30 else "NOT FOCUSED"
+                        color = (0, 165, 255) if smoothed_strength > 30 else (128, 128, 128)
                         cv2.putText(frame, focus_status, (10, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
                 # Annotate gaze info

@@ -57,7 +57,7 @@ def angle_between_vectors(v1, v2):
 
 
 def calculate_gaze_strength(gaze_end, hand_center, nose_pos):
-    """Calculate gaze strength/confidence based on angle precision and distance."""
+    """Calculate gaze strength/confidence based on angle precision and distance - Enhanced for desktop."""
     gaze_vector = np.array([gaze_end[0] - nose_pos[0], gaze_end[1] - nose_pos[1]])
     hand_vector = np.array([hand_center[0] - nose_pos[0], hand_center[1] - nose_pos[1]])
     
@@ -67,30 +67,36 @@ def calculate_gaze_strength(gaze_end, hand_center, nose_pos):
     # Calculate distance to hand
     hand_distance = np.linalg.norm(hand_vector)
     
-    # Normalized gaze strength calculation for desktop
-    # More stable and less fluctuating
+    # Enhanced gaze strength calculation for desktop - More sensitive
+    # More forgiving angle thresholds for desktop use
     
-    # Angle strength: smoother curve for desktop
-    if angle < 10:
+    # Angle strength: More sensitive curve for desktop
+    if angle < 5:
         angle_strength = 100  # Perfect alignment
-    elif angle < 30:
-        angle_strength = 90 - (angle - 10) * 2  # Gradual decrease
+    elif angle < 15:
+        angle_strength = 95 - (angle - 5) * 1.5  # Very gradual decrease
+    elif angle < 25:
+        angle_strength = 80 - (angle - 15) * 2  # Moderate decrease
+    elif angle < 40:
+        angle_strength = 50 - (angle - 25) * 1.5  # Slower decrease
     elif angle < 60:
-        angle_strength = 30 - (angle - 30) * 0.5  # Slower decrease
+        angle_strength = 20 - (angle - 40) * 0.5  # Very slow decrease
     else:
         angle_strength = 0  # Too far off
     
-    # Distance factor: more forgiving for desktop
-    if hand_distance < 100:
-        distance_factor = 0.8  # Too close
-    elif hand_distance < 300:
+    # Distance factor: More forgiving for desktop
+    if hand_distance < 80:
+        distance_factor = 0.9  # Too close but still acceptable
+    elif hand_distance < 200:
         distance_factor = 1.0  # Optimal distance
-    elif hand_distance < 500:
-        distance_factor = 0.9  # Still good
+    elif hand_distance < 400:
+        distance_factor = 0.95  # Still very good
+    elif hand_distance < 600:
+        distance_factor = 0.85  # Acceptable
     else:
         distance_factor = 0.7  # Too far
     
-    # Calculate total strength with normalization
+    # Calculate total strength with enhanced normalization
     total_strength = angle_strength * distance_factor
     
     # Apply smoothing and normalization
@@ -99,8 +105,8 @@ def calculate_gaze_strength(gaze_end, hand_center, nose_pos):
     return total_strength, angle
 
 
-def is_gaze_focused_on_hand(gaze_end, hand_center, nose_pos, min_strength=60):
-    """Check if gaze is strongly focused on the hand with high confidence."""
+def is_gaze_focused_on_hand(gaze_end, hand_center, nose_pos, min_strength=50):
+    """Check if gaze is strongly focused on the hand with high confidence - Lower threshold for desktop."""
     strength, angle = calculate_gaze_strength(gaze_end, hand_center, nose_pos)
     return strength >= min_strength, strength, angle
 
@@ -131,6 +137,18 @@ def angle_between(u, v):
         return 0.0
     cos_theta = max(-1.0, min(1.0, dot/(nu*nv)))
     return np.degrees(np.arccos(cos_theta))
+
+
+def check_sustained_gaze(gaze_strength_history, required_frames=15, min_strength=60):
+    """Check if gaze has been sustained on hand for required number of frames."""
+    if len(gaze_strength_history) < required_frames:
+        return False, len(gaze_strength_history), required_frames
+    
+    # Check if the last required_frames have all been above min_strength
+    recent_frames = gaze_strength_history[-required_frames:]
+    sustained_count = sum(1 for strength in recent_frames if strength >= min_strength)
+    
+    return sustained_count >= required_frames, sustained_count, required_frames
 
 
 def parse_args():
@@ -221,6 +239,10 @@ if __name__ == '__main__':
     # Gaze strength smoothing for desktop
     gaze_strength_history = []
     smoothing_window = 5  # Average over 5 frames
+    
+    # Sustained gaze detection
+    sustained_gaze_frames = 15  # Require 15 frames of sustained gaze
+    sustained_gaze_min_strength = 60  # Minimum strength for sustained gaze
 
     while True:
         ret, frame = cap.read()
@@ -299,7 +321,7 @@ if __name__ == '__main__':
                 # Hand-related analysis
                 if left_hand_detected and hand_center:
                     # Check if gaze is strongly focused on hand
-                    is_focused, gaze_strength, gaze_angle = is_gaze_focused_on_hand(arrow_end, hand_center, nose_pt, min_strength=60)
+                    is_focused, gaze_strength, gaze_angle = is_gaze_focused_on_hand(arrow_end, hand_center, nose_pt, min_strength=50)
                     
                     # Apply smoothing to gaze strength
                     gaze_strength_history.append(gaze_strength)
@@ -309,11 +331,21 @@ if __name__ == '__main__':
                     # Calculate smoothed gaze strength
                     smoothed_strength = sum(gaze_strength_history) / len(gaze_strength_history)
                     
+                    # Check for sustained gaze
+                    is_sustained, sustained_count, required_frames = check_sustained_gaze(
+                        gaze_strength_history, sustained_gaze_frames, sustained_gaze_min_strength
+                    )
+                    
                     # Always show gaze strength info (smoothed)
                     cv2.putText(frame, f"Gaze Strength: {smoothed_strength:.1f}%", (10, 120), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                     cv2.putText(frame, f"Angle: {gaze_angle:.1f}°", (10, 140), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                    
+                    # Show sustained gaze progress
+                    progress_text = f"Sustained: {sustained_count}/{required_frames}"
+                    progress_color = (0, 255, 0) if is_sustained else (255, 255, 0)
+                    cv2.putText(frame, progress_text, (10, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.6, progress_color, 2)
                     
                     # Show stability indicator
                     if len(gaze_strength_history) >= smoothing_window:
@@ -321,9 +353,9 @@ if __name__ == '__main__':
                         stability_color = (0, 255, 0) if stability == "STABLE" else (0, 165, 255)
                         cv2.putText(frame, f"Status: {stability}", (10, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.5, stability_color, 2)
                     
-                    # Use smoothed strength for focus detection
-                    if smoothed_strength >= 60:
-                        # Draw blue lines from pupils to hand only when truly focused
+                    # Only show focused indicators if sustained gaze is achieved
+                    if is_sustained and smoothed_strength >= 60:
+                        # Draw blue lines from pupils to hand only when truly focused and sustained
                         draw_pupil_to_hand_lines(left_pt, right_pt, hand_center, frame, color=(255, 0, 0), thickness=2)
                         
                         # Check if nose line bisects the pupil angle
@@ -332,14 +364,23 @@ if __name__ == '__main__':
                         if bisects:
                             # Draw green bisecting line from nose to hand center
                             cv2.line(frame, nose_pt, hand_center, (0, 255, 0), 4, cv2.LINE_AA)
-                            cv2.putText(frame, "PERFECT ALIGNMENT!", (10, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            cv2.putText(frame, "PERFECT ALIGNMENT!", (10, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                         
-                        cv2.putText(frame, "FOCUSED ON HAND", (10, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                        cv2.putText(frame, "FOCUSED ON HAND", (10, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                        cv2.putText(frame, "SUSTAINED GAZE", (10, 260), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
                     else:
-                        # Show that hand is detected but not focused
-                        focus_status = "WEAK FOCUS" if smoothed_strength > 30 else "NOT FOCUSED"
-                        color = (0, 165, 255) if smoothed_strength > 30 else (128, 128, 128)
-                        cv2.putText(frame, focus_status, (10, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                        # Show that hand is detected but not sustained
+                        if smoothed_strength >= 60:
+                            focus_status = "BUILDING SUSTAINED GAZE"
+                            color = (255, 255, 0)  # Yellow
+                        elif smoothed_strength > 30:
+                            focus_status = "WEAK FOCUS"
+                            color = (0, 165, 255)  # Orange
+                        else:
+                            focus_status = "NOT FOCUSED"
+                            color = (128, 128, 128)  # Gray
+                        
+                        cv2.putText(frame, focus_status, (10, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
                 # Annotate gaze info
                 cv2.putText(frame, f"Yaw: {yaw:.1f}° Pitch: {pitch:.1f}°", (10,30),
